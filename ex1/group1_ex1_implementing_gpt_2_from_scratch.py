@@ -252,7 +252,7 @@ class DataLoaderDDP():
 
 
 def train_me(warmup: bool = False, n_warmup_steps: int = 30):
-    losses = []
+    losses, val_losses = [], []
     gen_iter = generator._next()
 
     for epoch in range(num_epochs):
@@ -269,9 +269,13 @@ def train_me(warmup: bool = False, n_warmup_steps: int = 30):
                 optimizer.step()
             print(f'step {step}, loss: {loss.item():.4f}, time: {(time.time()-t0)*1000:.2f}ms')
             losses.append(loss.item())
+            if step % 100 == 0:
+                val_loss = get_val_loss()
+                val_losses.append(val_loss)
+                print(f'---- step {step}, val loss: {val_loss:.4f} ----')
         save_checkpoint(model, optimizer, epoch, loss)
         
-    return model, optimizer, losses
+    return losses, val_losses
 
 
 def save_checkpoint(model, optimizer, epoch, loss):
@@ -300,7 +304,7 @@ def load_checkpoint(path):
     return model, optimizer
 
 
-def plot_losses(losses):
+def plot_losses(losses, title):
     plt.figure()
     plt.plot(losses[1:])
     plt.xlabel('step')
@@ -309,6 +313,7 @@ def plot_losses(losses):
     plt.plot(np.log10(losses))
     plt.xlabel('step')
     plt.ylabel('negative log likelihood loss (log scale)')
+    plt.title(title)
 
 
 def get_edu_dataset(type='train'):
@@ -317,6 +322,25 @@ def get_edu_dataset(type='train'):
     else:
         tokens = np.load('edufineweb_val_0000000.npy')
     return tokens
+
+
+def get_val_loss(num_steps=20, batch_size=64):
+    val_generator = DataLoader(val_tokens, cfg.block_size, batch_size)
+    val_gen_iter = val_generator._next()
+    
+    model.eval()
+    
+    val_loss = 0.0
+    for _ in range(num_steps):
+        x, y = next(val_gen_iter)
+        x = x.to(device)
+        y = y.to(device)
+        with torch.no_grad():
+            logits = model(x)
+            val_loss += F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1)).item()
+
+    model.train()
+    return val_loss / num_steps
 
 
 if __name__ == "main":
@@ -330,21 +354,24 @@ if __name__ == "main":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # You can configure colab to run on a T4 GPU for faster generation
     print(device)
 
-    tokens = get_edu_dataset()
+    train_tokens = get_edu_dataset()
+    val_tokens = get_edu_dataset(type='val')
 
     cfg = GPTConfig(block_size=128)
     model = GPT(cfg)
     model.to(device)
-    generator = DataLoader(tokens, cfg.block_size, batch_size)
+    generator = DataLoader(train_tokens, cfg.block_size, batch_size)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
-    losses = train_me()
+    losses, val_losses = train_me()
 
     # save trained model
     torch.save(model.state_dict(), output_path)
     save_checkpoint()
 
-    plot_losses(losses)
+    # plot losses
+    plot_losses(losses, 'Training Loss')
+    plot_losses(val_losses, 'Validation Loss')
 
 
 
