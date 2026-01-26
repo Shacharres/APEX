@@ -1,0 +1,7 @@
+tiktoken
+modal
+datasets
+transformers
+tqdm
+numpy
+requests
