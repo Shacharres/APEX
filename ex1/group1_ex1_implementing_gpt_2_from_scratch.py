@@ -231,8 +231,10 @@ class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite cla
         return x, y
 
 
-def train_me(warmup: bool = False, n_warmup_steps: int = 30):
-    losses, val_losses = [], []
+def train_me(warmup: bool = False, n_warmup_steps: int = 30, losses=None):
+    losses = [] if losses is None else losses
+    val_losses = [] if losses is None else [np.nan] * (len(losses) // 200 + 1)
+        
     model.train()
     print("train_me() started, warmup: ", warmup)
     for epoch in range(num_epochs):
@@ -249,29 +251,30 @@ def train_me(warmup: bool = False, n_warmup_steps: int = 30):
             if not warmup or step > n_warmup_steps:
                 optimizer.step()
                 # print("optimizer.step() completed at step: ", step)
-            print(f'step {step}, loss: {loss.item():.4f}, time: {(time.time()-t0)*1000:.2f}ms')
             losses.append(loss.item())
+            if step % 10 == 0:
+                print(f'step {step}, loss: {loss.item():.4f}, time: {(time.time()-t0)*1000:.2f}ms')
             # move tensors back to cpu to save gpu memory
             x = x.to("cpu")
             y = y.to("cpu")
 
-            if step % 100 == 5: # print val loss every 100 steps, starting at step 5
+            if step % 200 == 5: # print val loss every 200 steps, starting at step 5
                 val_loss = get_val_loss(batch_size=batch_size)
                 val_losses.append(val_loss)
                 print(f'---- step {step}, val loss: {val_loss:.4f} ----')
-        
-        save_checkpoint(model, optimizer, epoch, loss)
-        
+
+        save_checkpoint(model, optimizer, epoch, losses)
+
     return losses, val_losses
 
 
-def save_checkpoint(model, optimizer, epoch, loss):
+def save_checkpoint(model, optimizer, epoch, losses):
     # save checkpoint
     torch.save({
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
-        'loss': loss,
+        'losses': losses,
     }, os.path.join(output_path, f'epoch_{epoch}.checkpoint'))
 
 
@@ -284,10 +287,12 @@ def load_checkpoint(path):
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     epoch = checkpoint['epoch']
-    loss = checkpoint['loss']
+    losses = checkpoint['losses']
+    loss = losses[-1]
+    print(f"Loaded checkpoint from {path}, epoch {epoch}, loss {loss:.4f}")
 
     # Use model.train() if you're resuming training, or model.eval() for inference
-    model.train_me(warmup=True)
+    model.train_me(warmup=True, losses=losses)
     return model, optimizer
 
 
