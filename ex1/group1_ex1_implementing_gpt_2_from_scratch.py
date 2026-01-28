@@ -348,7 +348,7 @@ if __name__ == "__main__":
 
 
     batch_size = 16
-    num_epochs = 5
+    num_epochs = 1
     num_steps = int(np.floor(10**9 / batch_size / cfg.block_size))  # train set is 10B tokens, so this is number of steps to go through 1 epoch (ignoring the validation shard but okay)
     lr = 1e-4
 
