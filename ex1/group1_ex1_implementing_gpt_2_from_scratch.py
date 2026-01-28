@@ -21,9 +21,11 @@ import torch
 from transformers import GPT2Tokenizer
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import time
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+# print("Hello, World!")
 
 @dataclass
 class GPTConfig:
@@ -192,73 +194,120 @@ class GPT(nn.Module):
 
 
 
-def shakespeare():
-    """# **Get the tiny Shakespeare dataset and train on it**"""
+# def shakespeare():
+#     """# **Get the tiny Shakespeare dataset and train on it**"""
 
-    tiny_shake = datasets.load_dataset('text', data_files={'train': 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'})['train']
+#     tiny_shake = datasets.load_dataset('text', data_files={'train': 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'})['train']
 
-    tokenizer = GPT2Tokenizer.from_pretrained("openai-community/gpt2")
+#     tokenizer = GPT2Tokenizer.from_pretrained("openai-community/gpt2")
 
-    token_ids = tokenizer.encode([line['text'] for line in tiny_shake], return_tensors="pt").squeeze()
-    tokens = torch.tensor(token_ids, dtype=torch.long)
-    return tokens
-
-
-class DataLoader():
-  def __init__(self, data, n_tokens, batch_size):
-    self.data = data
-    self.n_tokens = n_tokens
-    self.batch_size = batch_size
-    self.cur_position = 0
-
-  def _next(self):
-    while True:
-      if self.cur_position + self.n_tokens*self.batch_size + 1 >= len(self.data):
-        self.cur_position = 0
-        print('resetting the data gen')
-      res = self.data[self.cur_position : self.cur_position + self.n_tokens*self.batch_size + 1]
-      # reshape to batch*tokens, batch*1 for labels
-      x = res[:-1].view(self.batch_size, self.n_tokens)
-      y = res[1:].view(self.batch_size, self.n_tokens)
-      self.cur_position += self.n_tokens*self.batch_size
-      yield (x, y)
+#     token_ids = tokenizer.encode([line['text'] for line in tiny_shake], return_tensors="pt").squeeze()
+#     tokens = torch.tensor(token_ids, dtype=torch.long)
+#     return tokens
 
 
-class DataLoaderDDP():
-  def __init__(self, data, n_tokens, batch_size, rank=0, world_size=1):
-    self.data = data
-    self.n_tokens = n_tokens
-    self.batch_size = batch_size
-    self.rank = rank
-    self.world_size = world_size
+def load_tokens(filename):
+    npt = np.load(filename)
+    npt = npt.astype(np.int32) # added after video
+    ptt = torch.tensor(npt, dtype=torch.long)
+    return ptt
 
-    self.step = self.n_tokens * self.batch_size
-    self.cur_position = self.rank * self.step  # different start per rank
 
-  def _next(self):
-    while True:
-      if self.cur_position + self.step + 1 >= len(self.data):
-        self.cur_position = self.rank * self.step
-        if self.rank == 0:
-          print('resetting the data gen')
+# class DataLoader():
+#   def __init__(self, data, n_tokens, batch_size):
+#     self.data = data
+#     self.n_tokens = n_tokens
+#     self.batch_size = batch_size
+#     self.cur_position = 0
 
-      res = self.data[self.cur_position : self.cur_position + self.step + 1]
-      x = res[:-1].view(self.batch_size, self.n_tokens)
-      y = res[1:].view(self.batch_size, self.n_tokens)
+#   def _next(self):
+#     while True:
+#       if self.cur_position + self.n_tokens*self.batch_size + 1 >= len(self.data):
+#         self.cur_position = 0
+#         print('resetting the data gen')
+#       res = self.data[self.cur_position : self.cur_position + self.n_tokens*self.batch_size + 1]
+#       # reshape to batch*tokens, batch*1 for labels
+#       x = res[:-1].view(self.batch_size, self.n_tokens)
+#       y = res[1:].view(self.batch_size, self.n_tokens)
+#       self.cur_position += self.n_tokens*self.batch_size
+#       yield (x, y)
 
-      # jump by world_size steps so ranks don't overlap
-      self.cur_position += self.step * self.world_size
-      yield (x, y)
+class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite class
+    def __init__(self, B, T, process_rank, num_processes, split, master_process: bool):
+        self.B = B
+        self.T = T
+        self.process_rank = process_rank
+        self.num_processes = num_processes
+        assert split in {'train', 'val'} # 'train' or 'val' in file name
+
+        # get the shard filenames
+        data_root = "edu_fineweb10B"
+        shards = os.listdir(data_root)
+        shards = [s for s in shards if split in s] # only include files with 'train' or 'val' in the name
+        shards = sorted(shards) # sort the files alphabetically
+        shards = [os.path.join(data_root, s) for s in shards]
+        self.shards = shards # list of file paths
+        assert len(shards) > 0, f"no shards found for split {split}" # check that there are some shards
+        if master_process:
+            print(f"found {len(shards)} shards for split {split}") # print the number of shards found
+        self.reset()
+
+    def reset(self):
+        # state, init at shard zero
+        self.current_shard = 0
+        print("resetting the data gen")
+        self.tokens = load_tokens(self.shards[self.current_shard])
+        self.current_position = self.B * self.T * self.process_rank
+
+    def _next(self): 
+        B, T = self.B, self.T
+        buf = self.tokens[self.current_position : self.current_position+B*T+1]
+        x = (buf[:-1]).view(B, T) # inputs
+        y = (buf[1:]).view(B, T) # targets
+        # advance the position in the tensor
+        self.current_position += B * T * self.num_processes
+        print("self.current_position: ", self.current_position)
+        # if loading the next batch would be out of bounds, advance to next shard
+        if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
+            self.current_shard = (self.current_shard + 1) % len(self.shards)
+            self.tokens = load_tokens(self.shards[self.current_shard])
+            self.current_position = B * T * self.process_rank
+        return x, y
+
+# class DataLoaderDDP():
+#   def __init__(self, data, n_tokens, batch_size, rank=0, world_size=1):
+#     self.data = data
+#     self.n_tokens = n_tokens
+#     self.batch_size = batch_size
+#     self.rank = rank
+#     self.world_size = world_size
+
+#     self.step = self.n_tokens * self.batch_size
+#     self.cur_position = self.rank * self.step  # different start per rank
+
+#   def _next(self):
+#     while True:
+#       if self.cur_position + self.step + 1 >= len(self.data):
+#         self.cur_position = self.rank * self.step
+#         if self.rank == 0:
+#           print('resetting the data gen')
+
+#       res = self.data[self.cur_position : self.cur_position + self.step + 1]
+#       x = res[:-1].view(self.batch_size, self.n_tokens)
+#       y = res[1:].view(self.batch_size, self.n_tokens)
+
+#       # jump by world_size steps so ranks don't overlap
+#       self.cur_position += self.step * self.world_size
+#       yield (x, y)
 
 
 def train_me(warmup: bool = False, n_warmup_steps: int = 30):
     losses, val_losses = [], []
-    gen_iter = generator._next()
-
+    print("train_me() started, warmup: ", warmup)
     for epoch in range(num_epochs):
         for step in range(num_steps):
             t0 = time.time()
-            x, y = next(gen_iter)
+            x, y = generator._next()
             x = x.to(device)
             y = y.to(device)
             optimizer.zero_grad()
@@ -267,9 +316,16 @@ def train_me(warmup: bool = False, n_warmup_steps: int = 30):
             loss.backward()
             if warmup and step > n_warmup_steps:
                 optimizer.step()
+                print("optimizer.step() completed at step: ", step)
+            if warmup == False:
+                optimizer.step()
+                print("optimizer.step() completed at step: ", step)
             print(f'step {step}, loss: {loss.item():.4f}, time: {(time.time()-t0)*1000:.2f}ms')
             losses.append(loss.item())
-            if step % 100 == 0:
+            x = x.to("cpu")
+            y = y.to("cpu")
+            # if step % 100 == 0: # print val loss every 100 steps
+            if step % 100 == 5: # print val loss every 100 steps
                 val_loss = get_val_loss()
                 val_losses.append(val_loss)
                 print(f'---- step {step}, val loss: {val_loss:.4f} ----')
@@ -316,23 +372,30 @@ def plot_losses(losses, title):
     plt.title(title)
 
 
-def get_edu_dataset(type='train'):
-    if type == 'train':
-        tokens = np.load('edufineweb_train_0000001.npy')
-    else:
-        tokens = np.load('edufineweb_val_0000000.npy')
-    return tokens
+# def get_edu_dataset(type='train'):
+#     if type == 'train':
+#         tokens = np.load('edufineweb_train_0000001.npy')
+#     else:
+#         tokens = np.load('edufineweb_val_0000000.npy')
+#     return tokens
 
 
 def get_val_loss(num_steps=20, batch_size=64):
-    val_generator = DataLoader(val_tokens, cfg.block_size, batch_size)
+    val_generator = DataLoader(
+        B=batch_size,
+        T=cfg.block_size,
+        process_rank=0,
+        num_processes=1,
+        split='val',
+        master_process=True
+    )
     val_gen_iter = val_generator._next()
     
     model.eval()
     
     val_loss = 0.0
     for _ in range(num_steps):
-        x, y = next(val_gen_iter)
+        x, y = generator._next()
         x = x.to(device)
         y = y.to(device)
         with torch.no_grad():
@@ -343,7 +406,7 @@ def get_val_loss(num_steps=20, batch_size=64):
     return val_loss / num_steps
 
 
-if __name__ == "main":
+if __name__ == "__main__":
 
     batch_size = 8
     num_epochs = 1
@@ -352,15 +415,23 @@ if __name__ == "main":
     output_path = 'group1_model.pth'
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # You can configure colab to run on a T4 GPU for faster generation
-    print(device)
-
-    train_tokens = get_edu_dataset()
-    val_tokens = get_edu_dataset(type='val')
+    print("device: ", device)
+    # train_tokens = get_edu_dataset()
+    # val_tokens = get_edu_dataset(type='val')
 
     cfg = GPTConfig(block_size=128)
+    print("cfg: ", cfg)
     model = GPT(cfg)
     model.to(device)
-    generator = DataLoader(train_tokens, cfg.block_size, batch_size)
+    # generator = DataLoader(train_tokens, cfg.block_size, batch_size)
+    generator = DataLoader(
+        B=batch_size,
+        T=cfg.block_size,
+        process_rank=0,
+        num_processes=1,
+        split='train',
+        master_process=True
+    )
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
     losses, val_losses = train_me()
