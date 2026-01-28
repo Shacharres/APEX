@@ -198,7 +198,8 @@ class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite cla
         assert split in {'train', 'val'} # 'train' or 'val' in file name
 
         # get the shard filenames
-        data_root = "edu_fineweb10B"
+        data_root = "/home/group_1/edu_fineweb10B"
+        
         shards = os.listdir(data_root)
         shards = [s for s in shards if split in s] # only include files with 'train' or 'val' in the name
         shards = sorted(shards) # sort the files alphabetically
