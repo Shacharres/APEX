@@ -199,7 +199,7 @@ class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite cla
 
         # get the shard filenames
         data_root = "/home/group_1/edu_fineweb10B"
-        
+
         shards = os.listdir(data_root)
         shards = [s for s in shards if split in s] # only include files with 'train' or 'val' in the name
         shards = sorted(shards) # sort the files alphabetically
@@ -213,7 +213,6 @@ class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite cla
     def reset(self):
         # state, init at shard zero
         self.current_shard = 0
-        print("resetting the data gen")
         self.tokens = load_tokens(self.shards[self.current_shard])
         self.current_position = self.B * self.T * self.process_rank
 
@@ -224,7 +223,6 @@ class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite cla
         y = (buf[1:]).view(B, T) # targets
         # advance the position in the tensor
         self.current_position += B * T * self.num_processes
-        print("self.current_position: ", self.current_position)
         # if loading the next batch would be out of bounds, advance to next shard
         if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
             self.current_shard = (self.current_shard + 1) % len(self.shards)
@@ -258,7 +256,7 @@ def train_me(warmup: bool = False, n_warmup_steps: int = 30):
             y = y.to("cpu")
 
             if step % 100 == 5: # print val loss every 100 steps, starting at step 5
-                val_loss = get_val_loss()
+                val_loss = get_val_loss(batch_size=batch_size)
                 val_losses.append(val_loss)
                 print(f'---- step {step}, val loss: {val_loss:.4f} ----')
         
@@ -274,7 +272,7 @@ def save_checkpoint(model, optimizer, epoch, loss):
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'loss': loss,
-    }, f'group1_model_ckpt_{datetime.now().strftime("%Y%m%d_%H%M%S")}.checkpoint')
+    }, os.path.join(output_path, f'epoch_{epoch}.checkpoint'))
 
 
 def load_checkpoint(path):
@@ -306,7 +304,7 @@ def plot_losses(losses, title):
     plt.savefig(f'{title}_losses.png')
 
 
-def get_val_loss(num_steps=20, batch_size=64):
+def get_val_loss(num_steps=200, batch_size=64):
     val_generator = DataLoader(
         B=batch_size,
         T=cfg.block_size,
@@ -331,19 +329,29 @@ def get_val_loss(num_steps=20, batch_size=64):
 
 
 if __name__ == "__main__":
+    import gc
+
+    # Invoke garbage collector
+    gc.collect()
+    # Clear GPU cache
+    torch.cuda.empty_cache()
+    
+    cfg = GPTConfig()
+    model = GPT(cfg)
+    output_path = f'group1_model_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    os.makedirs(output_path, exist_ok=True)
+
 
     batch_size = 8
     num_epochs = 1
-    num_steps = 10
+    num_steps = int(np.floor(10**9 / batch_size / cfg.block_size))  # train set is 10B tokens, so this is number of steps to go through 1 epoch (ignoring the validation shard but okay)
     lr = 1e-4
-    output_path = f'group1_model_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pth'
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # You can configure colab to run on a T4 GPU for faster generation
     print("device: ", device)
-
-    cfg = GPTConfig(block_size=128)
     print("cfg: ", cfg)
-    model = GPT(cfg)
+    print("will run for num_epochs: ", num_epochs, " with num_steps per epoch: ", num_steps)
+
     model.to(device)
 
     generator = DataLoader(
@@ -359,13 +367,15 @@ if __name__ == "__main__":
     losses, val_losses = train_me()
 
     # save trained model
-    torch.save(model.state_dict(), output_path)
+    torch.save(model.state_dict(), os.path.join(output_path, "model.pth"))
     print(f"Model saved to {output_path}")
 
     # plot losses
     plot_losses(losses, 'Training Loss')
     plot_losses(val_losses, 'Validation Loss')
 
+    del model
+    del optimizer
 
 
 
