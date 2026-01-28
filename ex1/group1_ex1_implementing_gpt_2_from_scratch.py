@@ -21,9 +21,11 @@ import torch
 from transformers import GPT2Tokenizer
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import time
 from torch.nn.parallel import DistributedDataParallel as DDP
 
+# print("Hello, World!")
 
 @dataclass
 class GPTConfig:
@@ -192,16 +194,16 @@ class GPT(nn.Module):
 
 
 
-def shakespeare():
-    """# **Get the tiny Shakespeare dataset and train on it**"""
+# def shakespeare():
+#     """# **Get the tiny Shakespeare dataset and train on it**"""
 
-    tiny_shake = datasets.load_dataset('text', data_files={'train': 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'})['train']
+#     tiny_shake = datasets.load_dataset('text', data_files={'train': 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'})['train']
 
-    tokenizer = GPT2Tokenizer.from_pretrained("openai-community/gpt2")
+#     tokenizer = GPT2Tokenizer.from_pretrained("openai-community/gpt2")
 
-    token_ids = tokenizer.encode([line['text'] for line in tiny_shake], return_tensors="pt").squeeze()
-    tokens = torch.tensor(token_ids, dtype=torch.long)
-    return tokens
+#     token_ids = tokenizer.encode([line['text'] for line in tiny_shake], return_tensors="pt").squeeze()
+#     tokens = torch.tensor(token_ids, dtype=torch.long)
+#     return tokens
 
 
 def load_tokens(filename):
@@ -264,7 +266,7 @@ class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite cla
         y = (buf[1:]).view(B, T) # targets
         # advance the position in the tensor
         self.current_position += B * T * self.num_processes
-        print(self.current_position)
+        print("self.current_position: ", self.current_position)
         # if loading the next batch would be out of bounds, advance to next shard
         if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
             self.current_shard = (self.current_shard + 1) % len(self.shards)
@@ -301,7 +303,7 @@ class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite cla
 
 def train_me(warmup: bool = False, n_warmup_steps: int = 30):
     losses, val_losses = [], []
-
+    print("train_me() started, warmup: ", warmup)
     for epoch in range(num_epochs):
         for step in range(num_steps):
             t0 = time.time()
@@ -314,11 +316,16 @@ def train_me(warmup: bool = False, n_warmup_steps: int = 30):
             loss.backward()
             if warmup and step > n_warmup_steps:
                 optimizer.step()
+                print("optimizer.step() completed at step: ", step)
+            if warmup == False:
+                optimizer.step()
+                print("optimizer.step() completed at step: ", step)
             print(f'step {step}, loss: {loss.item():.4f}, time: {(time.time()-t0)*1000:.2f}ms')
             losses.append(loss.item())
             x = x.to("cpu")
             y = y.to("cpu")
-            if step % 100 == 0:
+            # if step % 100 == 0: # print val loss every 100 steps
+            if step % 100 == 5: # print val loss every 100 steps
                 val_loss = get_val_loss()
                 val_losses.append(val_loss)
                 print(f'---- step {step}, val loss: {val_loss:.4f} ----')
@@ -365,23 +372,30 @@ def plot_losses(losses, title):
     plt.title(title)
 
 
-def get_edu_dataset(type='train'):
-    if type == 'train':
-        tokens = np.load('edufineweb_train_0000001.npy')
-    else:
-        tokens = np.load('edufineweb_val_0000000.npy')
-    return tokens
+# def get_edu_dataset(type='train'):
+#     if type == 'train':
+#         tokens = np.load('edufineweb_train_0000001.npy')
+#     else:
+#         tokens = np.load('edufineweb_val_0000000.npy')
+#     return tokens
 
 
 def get_val_loss(num_steps=20, batch_size=64):
-    val_generator = DataLoader(val_tokens, cfg.block_size, batch_size)
+    val_generator = DataLoader(
+        B=batch_size,
+        T=cfg.block_size,
+        process_rank=0,
+        num_processes=1,
+        split='val',
+        master_process=True
+    )
     val_gen_iter = val_generator._next()
     
     model.eval()
     
     val_loss = 0.0
     for _ in range(num_steps):
-        x, y = next(val_gen_iter)
+        x, y = generator._next()
         x = x.to(device)
         y = y.to(device)
         with torch.no_grad():
@@ -392,7 +406,7 @@ def get_val_loss(num_steps=20, batch_size=64):
     return val_loss / num_steps
 
 
-if __name__ == "main":
+if __name__ == "__main__":
 
     batch_size = 8
     num_epochs = 1
@@ -401,10 +415,9 @@ if __name__ == "main":
     output_path = 'group1_model.pth'
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # You can configure colab to run on a T4 GPU for faster generation
-    print(device)
-
-    train_tokens = get_edu_dataset()
-    val_tokens = get_edu_dataset(type='val')
+    print("device: ", device)
+    # train_tokens = get_edu_dataset()
+    # val_tokens = get_edu_dataset(type='val')
 
     cfg = GPTConfig(block_size=128)
     print("cfg: ", cfg)
