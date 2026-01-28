@@ -301,7 +301,7 @@ def plot_losses(losses, title):
     plt.xlabel('step')
     plt.ylabel('negative log likelihood loss (log scale)')
     plt.title(title)
-    plt.savefig(f'{title}_losses.png')
+    plt.savefig(os.path.join(output_path, f'{title}_losses.png'))
 
 
 def get_val_loss(num_steps=200, batch_size=64):
