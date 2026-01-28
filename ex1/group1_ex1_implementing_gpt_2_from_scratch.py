@@ -13,6 +13,7 @@ import numpy as np
 import os
 import time
 from torch.nn.parallel import DistributedDataParallel as DDP
+from datetime import datetime
 
 
 @dataclass
@@ -272,7 +273,7 @@ def save_checkpoint(model, optimizer, epoch, loss):
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'loss': loss,
-    }, output_path.replace('.pth', '.checkpoint'))
+    }, f'group1_model_ckpt_{datetime.now().strftime("%Y%m%d_%H%M%S")}.checkpoint')
 
 
 def load_checkpoint(path):
@@ -301,14 +302,7 @@ def plot_losses(losses, title):
     plt.xlabel('step')
     plt.ylabel('negative log likelihood loss (log scale)')
     plt.title(title)
-
-
-# def get_edu_dataset(type='train'):
-#     if type == 'train':
-#         tokens = np.load('edufineweb_train_0000001.npy')
-#     else:
-#         tokens = np.load('edufineweb_val_0000000.npy')
-#     return tokens
+    plt.savefig(f'{title}_losses.png')
 
 
 def get_val_loss(num_steps=20, batch_size=64):
@@ -339,20 +333,18 @@ if __name__ == "__main__":
 
     batch_size = 8
     num_epochs = 1
-    num_steps = 1000
+    num_steps = 10
     lr = 1e-4
-    output_path = 'group1_model.pth'
+    output_path = f'group1_model_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pth'
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # You can configure colab to run on a T4 GPU for faster generation
     print("device: ", device)
-    # train_tokens = get_edu_dataset()
-    # val_tokens = get_edu_dataset(type='val')
 
     cfg = GPTConfig(block_size=128)
     print("cfg: ", cfg)
     model = GPT(cfg)
     model.to(device)
-    # generator = DataLoader(train_tokens, cfg.block_size, batch_size)
+
     generator = DataLoader(
         B=batch_size,
         T=cfg.block_size,
@@ -367,7 +359,7 @@ if __name__ == "__main__":
 
     # save trained model
     torch.save(model.state_dict(), output_path)
-    save_checkpoint()
+    print(f"Model saved to {output_path}")
 
     # plot losses
     plot_losses(losses, 'Training Loss')
