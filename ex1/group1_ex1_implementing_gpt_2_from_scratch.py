@@ -319,14 +319,12 @@ def get_val_loss(num_steps=20, batch_size=64):
         num_processes=1,
         split='val',
         master_process=True
-    )
-    val_gen_iter = val_generator._next()
-    
+    )    
     model.eval()
     
     val_loss = 0.0
     for _ in range(num_steps):
-        x, y = generator._next()
+        x, y = val_generator._next()
         x = x.to(device)
         y = y.to(device)
         with torch.no_grad():
