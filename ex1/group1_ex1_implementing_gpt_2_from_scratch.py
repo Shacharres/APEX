@@ -278,10 +278,10 @@ def save_checkpoint(model, optimizer, epoch, losses):
     }, os.path.join(output_path, f'epoch_{epoch}.checkpoint'))
 
 
-def load_checkpoint(path):
+def load_checkpoint(path, train=False):
     # loading checkpoint
     model = GPT(GPTConfig())
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    optimizer = torch.optim.AdamW(model.parameters())
 
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint['model_state_dict'])
@@ -292,7 +292,8 @@ def load_checkpoint(path):
     print(f"Loaded checkpoint from {path}, epoch {epoch}, loss {loss:.4f}")
 
     # Use model.train() if you're resuming training, or model.eval() for inference
-    model.train_me(warmup=True, losses=losses)
+    if train:
+        model.train_me(warmup=True, losses=losses)
     return model, optimizer
 
 
@@ -347,15 +348,18 @@ def get_val_loss(num_steps=200, batch_size=64):
     return val_loss / num_steps
 
 
-def generate_text(our_gpt_model, prompt: str, k: int = 20):
+def generate_text(our_gpt_model, prompt: str, test_with_real_gpt: bool = False, k: int = 20):
     from transformers import GPT2Tokenizer, GPT2LMHeadModel
 
     tokenizer = GPT2Tokenizer.from_pretrained("openai-community/gpt2")
 
     token_ids = tokenizer.encode(prompt, return_tensors="pt")
     tokens = torch.tensor(token_ids, dtype=torch.long) # (8,)
-    tokens = tokens.unsqueeze(0).repeat(5, 1) # Generate in a batch of 5. Shape is (5, 8)
+    tokens = tokens.repeat(5, 1) # Generate in a batch of 5. Shape is (5, 8)
     x = tokens.to(device)
+
+    if test_with_real_gpt:
+        our_gpt_model = GPT2LMHeadModel.from_pretrained("openai-community/gpt2")
 
     # Move the model to the correct device
     our_gpt_model.to(device)
@@ -365,6 +369,8 @@ def generate_text(our_gpt_model, prompt: str, k: int = 20):
         # forward the model to get the logits
         with torch.no_grad():
             logits = our_gpt_model(x)
+            if test_with_real_gpt:
+                logits = logits.logits 
             # only care about the last token
             logits = logits[:, -1, :] # Shape (batch, vocab_size)
 
@@ -377,11 +383,12 @@ def generate_text(our_gpt_model, prompt: str, k: int = 20):
             probs = F.softmax(logits_masked, dim=-1) # Softmax on (batch, vocab_size)
 
             # sample according to prob
-            next = torch.multinomial(probs, num_samples=1, seed=42)
+            next = torch.multinomial(probs, num_samples=1) # (batch, 1)
             x = torch.cat((x, next), dim=1)
 
     print(tokenizer.batch_decode(x))
     [print(s) for s in tokenizer.batch_decode(x)]
+    x.to("cpu")  # move back to cpu to clear gpu memory
 
 
 def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4):
@@ -418,9 +425,6 @@ def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4):
     # plot_losses(val_losses, 'Validation Loss')
     plot_train_with_val_losses(losses, val_losses)
 
-    del model
-    del optimizer
-
     return model, optimizer
 
 
@@ -441,6 +445,9 @@ if __name__ == "__main__":
     if TRAIN:
         model, optimizer = training_wrapper(batch_size=16, num_epochs=1, lr=1e-4)
     else:
-        model, optimizer = load_checkpoint('path_to_your_checkpoint')  
+        model, optimizer = load_checkpoint(r'/home/group_1/group1_model_20260128_212907/epoch_0.checkpoint', train=False)  
 
-    generate_text(model, prompt="What is today's weather forecast?")
+    generate_text(model, prompt="Yesterday, I went", k=20)
+    
+    del model
+    del optimizer
