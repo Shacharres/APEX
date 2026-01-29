@@ -231,7 +231,7 @@ class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite cla
         return x, y
 
 
-def train_me(model, cfg, generator, optimizer, num_epochs, num_steps, warmup: bool = False, n_warmup_steps: int = 30, losses=None):
+def train_me(model, cfg, generator, optimizer, num_epochs, num_steps, output_path, warmup: bool = False, n_warmup_steps: int = 30, losses=None):
     losses = [] if losses is None else losses
     val_losses = [] if losses is None else [np.nan] * (len(losses) // 200 + 1)
         
@@ -263,12 +263,12 @@ def train_me(model, cfg, generator, optimizer, num_epochs, num_steps, warmup: bo
                 val_losses.append(val_loss)
                 print(f'---- step {step}, val loss: {val_loss:.4f} ----')
 
-        save_checkpoint(model, optimizer, epoch, losses)
+        save_checkpoint(model, optimizer, epoch, losses, output_path)
 
     return losses, val_losses
 
 
-def save_checkpoint(model, optimizer, epoch, losses):
+def save_checkpoint(model, optimizer, epoch, losses, output_path):
     # save checkpoint
     torch.save({
         'epoch': epoch,
@@ -293,7 +293,7 @@ def load_checkpoint(path, train=False):
 
     # Use model.train() if you're resuming training, or model.eval() for inference
     if train:
-        model.train_me(model, cfg, generator, optimizer, num_epochs, num_steps, warmup=True, losses=losses)
+        model.train_me(model, cfg, generator, optimizer, num_epochs, num_steps, path, warmup=True, losses=losses)
     return model, optimizer
 
 
@@ -414,7 +414,7 @@ def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4, num_steps: int = None
     )
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
-    losses, val_losses = train_me(model, cfg, generator, optimizer, num_epochs, num_steps)
+    losses, val_losses = train_me(model, cfg, generator, optimizer, num_epochs, num_steps, output_path=output_path)
 
     # save trained model
     torch.save(model.state_dict(), os.path.join(output_path, "model.pth"))
