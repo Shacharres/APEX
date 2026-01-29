@@ -333,27 +333,55 @@ def get_val_loss(num_steps=200, batch_size=64):
     return val_loss / num_steps
 
 
-if __name__ == "__main__":
-    import gc
+def generate_text(our_gpt_model, prompt: str):
+    from transformers import GPT2Tokenizer, GPT2LMHeadModel
 
-    # Invoke garbage collector
-    gc.collect()
-    # Clear GPU cache
-    torch.cuda.empty_cache()
-    
+    tokenizer = GPT2Tokenizer.from_pretrained("openai-community/gpt2")
+
+    token_ids = tokenizer.encode(prompt, return_tensors="pt")
+    tokens = torch.tensor(token_ids, dtype=torch.long) # (8,)
+    tokens = tokens.unsqueeze(0).repeat(5, 1) # Generate in a batch of 5. Shape is (5, 8)
+    x = tokens.to(device)
+
+    # Move the model to the correct device
+    our_gpt_model.to(device)
+
+    k = 20
+
+    print("Generating on device:", device)
+    our_gpt_model.eval()
+    # generate!
+    while x.size(1) < 30: # max_length=30
+        # forward the model to get the logits
+        with torch.no_grad():
+            logits = our_gpt_model(x)
+            # only care about the last token
+            logits = logits[:, -1, :] # Shape (batch, vocab_size)
+
+            # Implement top-k masking: set non-top-k logits to -inf
+            topk_values, _ = torch.topk(logits, k, dim=-1)
+            kth_largest_value = topk_values[:, -1].unsqueeze(-1) # shape (batch, 1)
+            logits_masked = torch.where(logits < kth_largest_value, torch.full_like(logits, float('-inf')), logits)
+
+            # now do softmax
+            probs = F.softmax(logits_masked, dim=-1) # Softmax on (batch, vocab_size)
+
+            # sample according to prob
+            next = torch.multinomial(probs, num_samples=1, seed=42)
+            x = torch.cat((x, next), dim=1)
+
+    print(tokenizer.batch_decode(x))
+    [print(s) for s in tokenizer.batch_decode(x)]
+
+
+def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4):
     cfg = GPTConfig()
     model = GPT(cfg)
     output_path = f'group1_model_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
     os.makedirs(output_path, exist_ok=True)
 
-
-    batch_size = 16
-    num_epochs = 1
     num_steps = int(np.floor(10**9 / batch_size / cfg.block_size))  # train set is 10B tokens, so this is number of steps to go through 1 epoch (ignoring the validation shard but okay)
-    lr = 1e-4
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # You can configure colab to run on a T4 GPU for faster generation
-    print("device: ", device)
     print("cfg: ", cfg)
     print("will run for num_epochs: ", num_epochs, " with num_steps per epoch: ", num_steps)
 
@@ -369,7 +397,7 @@ if __name__ == "__main__":
     )
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
-    losses, val_losses = train_me()
+    losses, val_losses = train_me(model, generator, optimizer, num_epochs, num_steps)
 
     # save trained model
     torch.save(model.state_dict(), os.path.join(output_path, "model.pth"))
@@ -382,42 +410,26 @@ if __name__ == "__main__":
     del model
     del optimizer
 
+    return model, optimizer
 
 
-# import torch
-# import torch.nn.functional as F
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # You can configure colab to run on a T4 GPU for faster generation
-# tokens = [15496, 11, 314, 1101, 257, 3303, 2746, 11] # "Hello, I'm a language model,"
-# tokens = torch.tensor(tokens, dtype=torch.long) # (8,)
-# tokens = tokens.unsqueeze(0).repeat(5, 1) # Generate in a batch of 5. Shape is (5, 8)
-# x = tokens.to(device)
 
-# # Move the model to the correct device
-# our_gpt_model.to(device)
+if __name__ == "__main__":
 
-# k = 20
+    TRAIN = False
 
-# print("Generating on device:", device)
-# our_gpt_model.eval()
-# # generate!
-# while x.size(1) < 30: # max_length=30
-#     # forward the model to get the logits
-#     with torch.no_grad():
-#         logits = our_gpt_model(x)
-#         # only care about the last token
-#         logits = logits[:, -1, :] # Shape (batch, vocab_size)
+    import gc
+    # Invoke garbage collector
+    gc.collect()
+    # Clear GPU cache
+    torch.cuda.empty_cache()
 
-#         # Implement top-k masking: set non-top-k logits to -inf
-#         topk_values, _ = torch.topk(logits, k, dim=-1)
-#         kth_largest_value = topk_values[:, -1].unsqueeze(-1) # shape (batch, 1)
-#         logits_masked = torch.where(logits < kth_largest_value, torch.full_like(logits, float('-inf')), logits)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # You can configure colab to run on a T4 GPU for faster generation
+    print("device: ", device)
 
-#         # now do softmax
-#         probs = F.softmax(logits_masked, dim=-1) # Softmax on (batch, vocab_size)
+    if TRAIN:
+        model, optimizer = training_wrapper(batch_size=16, num_epochs=1, lr=1e-4)
+    else:
+        model, optimizer = load_checkpoint('path_to_your_checkpoint')  
 
-#         # sample according to prob
-#         next = torch.multinomial(probs, num_samples=1, seed=42)
-#         x = torch.cat((x, next), dim=1)
-
-# print(tokenizer.batch_decode(x))
-# [print(s) for s in tokenizer.batch_decode(x)]
+    generate_text(model, prompt="What is today's weather forecast?")
