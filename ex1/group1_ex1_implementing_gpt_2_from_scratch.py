@@ -297,7 +297,7 @@ def load_checkpoint(path, train=False):
     return model, optimizer
 
 
-def plot_losses(losses, title):
+def plot_losses(losses, title, output_path):
     plt.figure()
     plt.plot(losses[1:])
     plt.xlabel('step')
@@ -311,7 +311,7 @@ def plot_losses(losses, title):
     plt.close()
 
 
-def plot_train_with_val_losses(train_losses, val_losses):
+def plot_train_with_val_losses(train_losses, val_losses, output_path):
     plt.figure()
     plt.plot(train_losses, label='Training Loss')
     plt.plot(np.arange(0, len(train_losses), 200), val_losses, label='Validation Loss', marker='o')
@@ -422,9 +422,9 @@ def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4, num_steps: int = None
 
     # plot losses
     try:
-        plot_losses(losses, 'Training Loss')
-        plot_losses(val_losses, 'Validation Loss')
-        plot_train_with_val_losses(losses, val_losses)
+        plot_losses(losses, 'Training Loss', output_path)
+        plot_losses(val_losses, 'Validation Loss', output_path)
+        plot_train_with_val_losses(losses, val_losses, output_path)
     except Exception as e:
         print("Could not plot losses: ", e)
 
