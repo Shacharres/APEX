@@ -421,9 +421,12 @@ def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4, num_steps: int = None
     print(f"Model saved to {output_path}")
 
     # plot losses
-    # plot_losses(losses, 'Training Loss')
-    # plot_losses(val_losses, 'Validation Loss')
-    plot_train_with_val_losses(losses, val_losses)
+    try:
+        plot_losses(losses, 'Training Loss')
+        plot_losses(val_losses, 'Validation Loss')
+        plot_train_with_val_losses(losses, val_losses)
+    except Exception as e:
+        print("Could not plot losses: ", e)
 
     return model, optimizer
 
@@ -443,7 +446,7 @@ if __name__ == "__main__":
     print("device: ", device)
 
     if TRAIN:
-        model, optimizer = training_wrapper(batch_size=16, num_epochs=1, lr=1e-4, num_steps=50)
+        model, optimizer = training_wrapper(batch_size=16, num_epochs=1, lr=1e-4, num_steps=1000)
     else:
         model, optimizer = load_checkpoint(r'/home/group_1/group1_model_20260128_212907/epoch_0.checkpoint', train=False)  
 
