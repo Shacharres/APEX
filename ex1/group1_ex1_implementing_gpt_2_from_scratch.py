@@ -307,6 +307,20 @@ def plot_losses(losses, title):
     plt.ylabel('negative log likelihood loss (log scale)')
     plt.title(title)
     plt.savefig(os.path.join(output_path, f'{title}_losses.png'))
+    plt.close()
+
+
+def plot_train_with_val_losses(train_losses, val_losses):
+    plt.figure()
+    plt.plot(train_losses, label='Training Loss')
+    plt.plot(np.arange(0, len(train_losses), 200), val_losses, label='Validation Loss', marker='o')
+    plt.xlabel('step')
+    plt.ylabel('negative log likelihood loss')
+    plt.yscale('log')
+    plt.title('Training and Validation Losses')
+    plt.legend()
+    plt.savefig(os.path.join(output_path, 'train_val_losses.png'))
+    plt.close()
 
 
 def get_val_loss(num_steps=200, batch_size=64):
@@ -333,7 +347,7 @@ def get_val_loss(num_steps=200, batch_size=64):
     return val_loss / num_steps
 
 
-def generate_text(our_gpt_model, prompt: str):
+def generate_text(our_gpt_model, prompt: str, k: int = 20):
     from transformers import GPT2Tokenizer, GPT2LMHeadModel
 
     tokenizer = GPT2Tokenizer.from_pretrained("openai-community/gpt2")
@@ -345,10 +359,6 @@ def generate_text(our_gpt_model, prompt: str):
 
     # Move the model to the correct device
     our_gpt_model.to(device)
-
-    k = 20
-
-    print("Generating on device:", device)
     our_gpt_model.eval()
     # generate!
     while x.size(1) < 30: # max_length=30
@@ -404,8 +414,9 @@ def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4):
     print(f"Model saved to {output_path}")
 
     # plot losses
-    plot_losses(losses, 'Training Loss')
-    plot_losses(val_losses, 'Validation Loss')
+    # plot_losses(losses, 'Training Loss')
+    # plot_losses(val_losses, 'Validation Loss')
+    plot_train_with_val_losses(losses, val_losses)
 
     del model
     del optimizer
