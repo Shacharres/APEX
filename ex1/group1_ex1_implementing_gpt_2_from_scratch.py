@@ -231,7 +231,7 @@ class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite cla
         return x, y
 
 
-def train_me(warmup: bool = False, n_warmup_steps: int = 30, losses=None):
+def train_me(model, cfg, generator, optimizer, num_epochs, num_steps, warmup: bool = False, n_warmup_steps: int = 30, losses=None):
     losses = [] if losses is None else losses
     val_losses = [] if losses is None else [np.nan] * (len(losses) // 200 + 1)
         
@@ -259,7 +259,7 @@ def train_me(warmup: bool = False, n_warmup_steps: int = 30, losses=None):
             y = y.to("cpu")
 
             if step % 200 == 5: # print val loss every 200 steps, starting at step 5
-                val_loss = get_val_loss(batch_size=batch_size)
+                val_loss = get_val_loss(model, cfg)
                 val_losses.append(val_loss)
                 print(f'---- step {step}, val loss: {val_loss:.4f} ----')
 
@@ -293,7 +293,7 @@ def load_checkpoint(path, train=False):
 
     # Use model.train() if you're resuming training, or model.eval() for inference
     if train:
-        model.train_me(warmup=True, losses=losses)
+        model.train_me(model, cfg, generator, optimizer, num_epochs, num_steps, warmup=True, losses=losses)
     return model, optimizer
 
 
@@ -324,7 +324,7 @@ def plot_train_with_val_losses(train_losses, val_losses):
     plt.close()
 
 
-def get_val_loss(num_steps=200, batch_size=64):
+def get_val_loss(model, cfg, num_steps=200, batch_size=64):
     val_generator = DataLoader(
         B=batch_size,
         T=cfg.block_size,
@@ -391,13 +391,13 @@ def generate_text(our_gpt_model, prompt: str, test_with_real_gpt: bool = False, 
     x.to("cpu")  # move back to cpu to clear gpu memory
 
 
-def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4):
+def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4, num_steps: int = None):
     cfg = GPTConfig()
     model = GPT(cfg)
     output_path = f'group1_model_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
     os.makedirs(output_path, exist_ok=True)
 
-    num_steps = int(np.floor(10**9 / batch_size / cfg.block_size))  # train set is 10B tokens, so this is number of steps to go through 1 epoch (ignoring the validation shard but okay)
+    num_steps = num_steps if num_steps is not None else int(np.floor(10**9 / batch_size / cfg.block_size))  # train set is 10B tokens, so this is number of steps to go through 1 epoch (ignoring the validation shard but okay)
 
     print("cfg: ", cfg)
     print("will run for num_epochs: ", num_epochs, " with num_steps per epoch: ", num_steps)
@@ -414,7 +414,7 @@ def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4):
     )
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
-    losses, val_losses = train_me(model, generator, optimizer, num_epochs, num_steps)
+    losses, val_losses = train_me(model, cfg, generator, optimizer, num_epochs, num_steps)
 
     # save trained model
     torch.save(model.state_dict(), os.path.join(output_path, "model.pth"))
@@ -431,7 +431,7 @@ def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4):
 
 if __name__ == "__main__":
 
-    TRAIN = False
+    TRAIN = True
 
     import gc
     # Invoke garbage collector
@@ -443,7 +443,7 @@ if __name__ == "__main__":
     print("device: ", device)
 
     if TRAIN:
-        model, optimizer = training_wrapper(batch_size=16, num_epochs=1, lr=1e-4)
+        model, optimizer = training_wrapper(batch_size=16, num_epochs=1, lr=1e-4, num_steps=50)
     else:
         model, optimizer = load_checkpoint(r'/home/group_1/group1_model_20260128_212907/epoch_0.checkpoint', train=False)  
 
