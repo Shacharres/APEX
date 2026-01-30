@@ -268,6 +268,8 @@ def train_me(model, val_generator, generator, optimizer, num_epochs, num_steps, 
                 val_loss = get_val_loss(model, val_generator)
                 val_losses.append(val_loss)
                 print(f'---- step {step}, val loss: {val_loss:.4f} ----')
+            if step > 1 and step % 500 == 0:
+                generate_text(model, output_path, prompt="Yesterday, I went", k=20, step=step)
 
         save_checkpoint(model, optimizer, epoch, losses, output_path)
 
@@ -349,11 +351,7 @@ def get_val_loss(model, val_generator, num_steps=200, batch_size=64):
     return val_loss / num_steps
 
 
-def generate_text(our_gpt_model, prompt: str, test_with_real_gpt: bool = False, k: int = 20):
-    from transformers import GPT2Tokenizer, GPT2LMHeadModel
-
-    tokenizer = GPT2Tokenizer.from_pretrained("openai-community/gpt2")
-
+def generate_text(our_gpt_model, output_path: str, prompt: str, test_with_real_gpt: bool = False, k: int = 20, step: int = None):
     token_ids = tokenizer.encode(prompt, return_tensors="pt")
     tokens = torch.tensor(token_ids, dtype=torch.long) # (8,)
     tokens = tokens.repeat(5, 1) # Generate in a batch of 5. Shape is (5, 8)
@@ -387,7 +385,14 @@ def generate_text(our_gpt_model, prompt: str, test_with_real_gpt: bool = False, 
             pred = torch.multinomial(probs, num_samples=1) # (batch, 1)
             x = torch.cat((x, pred), dim=1)
 
-    [print(s) for s in tokenizer.batch_decode(x)]
+    res = tokenizer.batch_decode(x)
+    [print(s) for s in res]
+    # save to file
+    with open(os.path.join(output_path, f'generated_text'), 'a') as f:
+        if step is not None:
+            f.write(f"--- step {step} ---\n")
+        for s in res:
+            f.write(s + "\n\n")
     x.to("cpu")  # move back to cpu to clear gpu memory
 
 
@@ -436,7 +441,7 @@ def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4, num_steps: int = None
     except Exception as e:
         print("Could not plot losses: ", e)
 
-    return model, optimizer
+    return model, optimizer, output_path
 
 
 
@@ -450,15 +455,13 @@ if __name__ == "__main__":
     # Clear GPU cache
     torch.cuda.empty_cache()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # You can configure colab to run on a T4 GPU for faster generation
-    print("device: ", device)
-
     if TRAIN:
-        model, optimizer = training_wrapper(batch_size=32, num_epochs=1, lr=1e-4, num_steps=1506)
+        model, optimizer, output_path = training_wrapper(batch_size=32, num_epochs=1, lr=1e-4)#, num_steps=1506)
     else:
-        model, optimizer = load_checkpoint(r'/home/group_1/group1_model_20260128_212907/epoch_0.checkpoint', train=False)  
+        output_path = r'/home/group_1/group1_model_1505_20260130_101745'
+        model, optimizer = load_checkpoint(output_path + "/epoch_0.checkpoint", train=False)  
 
-    generate_text(model, prompt="Yesterday, I went", k=20)
+    generate_text(model, output_path, prompt="Yesterday, I went", k=20, step='final')
     
     del model
     del optimizer
