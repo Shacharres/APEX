@@ -456,7 +456,7 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()
 
     if TRAIN:
-        model, optimizer, output_path = training_wrapper(batch_size=32, num_epochs=1, lr=1e-4)#, num_steps=1506)
+        model, optimizer, output_path = training_wrapper(batch_size=32, num_epochs=1, lr=1e-4, num_steps=10506)
     else:
         output_path = r'/home/group_1/group1_model_1505_20260130_101745'
         model, optimizer = load_checkpoint(output_path + "/epoch_0.checkpoint", train=False)  
