@@ -121,7 +121,7 @@ class GPT(nn.Module):
         ))
 
         self.lm_head = nn.Linear(self.config.n_embd, self.config.vocab_size, bias=False)
-        self.lm_head.weight = self.transformer.wte.weight  # tie weights
+        self.transformer.wte.weight = self.lm_head.weight  # tie weights
 
     def forward(self, idx):
         device = idx.device
