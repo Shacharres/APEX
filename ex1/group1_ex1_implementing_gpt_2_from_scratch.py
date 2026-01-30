@@ -271,19 +271,22 @@ def train_me(model, val_generator, generator, optimizer, num_epochs, num_steps, 
                 print(f'---- step {step}, val loss: {val_loss:.4f} ----')
             if step > 1 and step % 500 == 0:
                 generate_text(model, output_path, prompt="Yesterday, I went", k=20, step=step)
+            if step > 0 and step % 10000 == 0:
+                save_checkpoint(model, optimizer, f'{epoch}_step_{step}', losses, val_losses, output_path)
 
-        save_checkpoint(model, optimizer, epoch, losses, output_path)
+        save_checkpoint(model, optimizer, epoch, losses, val_losses, output_path)
 
     return losses, val_losses
 
 
-def save_checkpoint(model, optimizer, epoch, losses, output_path):
+def save_checkpoint(model, optimizer, epoch, losses, val_losses, output_path):
     # save checkpoint
     torch.save({
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'losses': losses,
+        'val_losses': val_losses,
     }, os.path.join(output_path, f'epoch_{epoch}.checkpoint'))
 
 
@@ -295,12 +298,13 @@ def load_checkpoint(path, train=False):
     checkpoint = torch.load(path)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    
     epoch = checkpoint['epoch']
     losses = checkpoint['losses']
+    val_losses = checkpoint['val_losses']
     loss = losses[-1]
     print(f"Loaded checkpoint from {path}, epoch {epoch}, loss {loss:.4f}")
 
-    # Use model.train() if you're resuming training, or model.eval() for inference
     if train:
         generator = DataLoader(B=batch_size, T=cfg.block_size, process_rank=0, num_processes=1, split='train', master_process=True)
         val_generator = DataLoader(B=batch_size, T=cfg.block_size, process_rank=0, num_processes=1, split='val', master_process=True)    
@@ -336,9 +340,7 @@ def plot_train_with_val_losses(train_losses, val_losses, output_path):
 
 
 def get_val_loss(model, val_generator, num_steps=200, batch_size=64):
-    
     model.eval()
-    
     val_loss = 0.0
     for _ in range(num_steps):
         x, y = val_generator._next()
@@ -457,7 +459,7 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()
 
     if TRAIN:
-        model, optimizer, output_path = training_wrapper(batch_size=32, num_epochs=1, lr=1e-4, num_steps=10506)
+        model, optimizer, output_path = training_wrapper(batch_size=32, num_epochs=1, lr=1e-4)#, num_steps=10506)
     else:
         output_path = r'/home/group_1/group1_model_1505_20260130_101745'
         model, optimizer = load_checkpoint(output_path + "/epoch_0.checkpoint", train=False)  
