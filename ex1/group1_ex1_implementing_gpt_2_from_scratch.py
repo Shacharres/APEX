@@ -314,7 +314,7 @@ def plot_losses(losses, title, output_path):
 def plot_train_with_val_losses(train_losses, val_losses, output_path):
     plt.figure()
     plt.plot(train_losses, label='Training Loss')
-    plt.plot(np.arange(0, len(train_losses), 200), val_losses, label='Validation Loss', marker='o')
+    plt.plot(np.arange(5, len(train_losses), 200), val_losses, label='Validation Loss', marker='o')
     plt.xlabel('step')
     plt.ylabel('negative log likelihood loss')
     plt.yscale('log')
@@ -394,10 +394,10 @@ def generate_text(our_gpt_model, prompt: str, test_with_real_gpt: bool = False, 
 def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4, num_steps: int = None):
     cfg = GPTConfig()
     model = GPT(cfg)
-    output_path = f'group1_model_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
-    os.makedirs(output_path, exist_ok=True)
 
     num_steps = num_steps if num_steps is not None else int(np.floor(10**9 / batch_size / cfg.block_size))  # train set is 10B tokens, so this is number of steps to go through 1 epoch (ignoring the validation shard but okay)
+    output_path = f'group1_model_{num_steps}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    os.makedirs(output_path, exist_ok=True)
 
     print("cfg: ", cfg)
     print("will run for num_epochs: ", num_epochs, " with num_steps per epoch: ", num_steps)
@@ -446,9 +446,9 @@ if __name__ == "__main__":
     print("device: ", device)
 
     if TRAIN:
-        model, optimizer = training_wrapper(batch_size=16, num_epochs=1, lr=1e-4, num_steps=1000)
+        model, optimizer = training_wrapper(batch_size=32, num_epochs=1, lr=1e-4, num_steps=1505)
     else:
-        model, optimizer = load_checkpoint(r'/home/group_1/group1_model_20260128_212907/epoch_0.checkpoint', train=False)  
+        model, optimizer = load_checkpoint(r'/home/group_1/group1_model_3006_20260129_192713/epoch_0.checkpoint', train=False)  
 
     generate_text(model, prompt="Yesterday, I went", k=20)
     
