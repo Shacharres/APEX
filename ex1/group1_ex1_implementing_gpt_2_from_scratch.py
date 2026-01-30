@@ -35,9 +35,9 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, config: GPTConfig):
         super().__init__()
         # key, query, value projections for all heads, but in a batch
-        self.c_attn = nn.Linear(config.n_embd, config.n_embd*3, bias=True)
+        self.c_attn = nn.Linear(config.n_embd, config.n_embd*3, bias=False)
         # output projection
-        self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=True)
+        self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=False)
 
         # regularization
         self.n_head = config.n_head
@@ -86,9 +86,9 @@ class CausalSelfAttention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, config: GPTConfig):
         super().__init__()
-        self.c_fc    = nn.Linear(config.n_embd, config.n_embd*4, bias=True)
+        self.c_fc    = nn.Linear(config.n_embd, config.n_embd*4, bias=False)
         self.gelu    = nn.GELU()
-        self.c_proj  = nn.Linear(config.n_embd*4, config.n_embd, bias=True)
+        self.c_proj  = nn.Linear(config.n_embd*4, config.n_embd, bias=False)
 
     def forward(self, x):
         return self.c_proj(self.gelu(self.c_fc(x)))
