@@ -231,7 +231,7 @@ class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite cla
         return x, y
 
 
-def train_me(model, cfg, generator, optimizer, num_epochs, num_steps, output_path, 
+def train_me(model, val_generator, generator, optimizer, num_epochs, num_steps, output_path, 
              warmup: bool = False, n_warmup_steps: int = 30, losses=None):
     val_losses = [] if losses is None else [np.nan] * (len(losses) // 200 + 1)
     losses = [] if losses is None else losses
@@ -251,7 +251,6 @@ def train_me(model, cfg, generator, optimizer, num_epochs, num_steps, output_pat
             loss.backward()
             if not warmup or step > n_warmup_steps:
                 optimizer.step()
-                # print("optimizer.step() completed at step: ", step)
             losses.append(loss.item())
             if step % 10 == 0:
                 print(f'step {step}, loss: {loss.item():.4f}, time: {(time.time()-t0)*1000:.2f}ms')
@@ -260,7 +259,7 @@ def train_me(model, cfg, generator, optimizer, num_epochs, num_steps, output_pat
             y = y.to("cpu")
 
             if step % 200 == 5: # print val loss every 200 steps, starting at step 5
-                val_loss = get_val_loss(model, cfg)
+                val_loss = get_val_loss(model, val_generator)
                 val_losses.append(val_loss)
                 print(f'---- step {step}, val loss: {val_loss:.4f} ----')
 
@@ -294,7 +293,9 @@ def load_checkpoint(path, train=False):
 
     # Use model.train() if you're resuming training, or model.eval() for inference
     if train:
-        model.train_me(model, cfg, generator, optimizer, num_epochs, num_steps, path, warmup=True, losses=losses)
+        generator = DataLoader(B=batch_size, T=cfg.block_size, process_rank=0, num_processes=1, split='train', master_process=True)
+        val_generator = DataLoader(B=batch_size, T=cfg.block_size, process_rank=0, num_processes=1, split='val', master_process=True)    
+        model.train_me(model, val_generator, generator, optimizer, num_epochs, num_steps, path, warmup=True, losses=losses)
     return model, optimizer
 
 
@@ -325,15 +326,8 @@ def plot_train_with_val_losses(train_losses, val_losses, output_path):
     plt.close()
 
 
-def get_val_loss(model, cfg, num_steps=200, batch_size=64):
-    val_generator = DataLoader(
-        B=batch_size,
-        T=cfg.block_size,
-        process_rank=0,
-        num_processes=1,
-        split='val',
-        master_process=True
-    )    
+def get_val_loss(model, val_generator, num_steps=200, batch_size=64):
+    
     model.eval()
     
     val_loss = 0.0
@@ -384,10 +378,9 @@ def generate_text(our_gpt_model, prompt: str, test_with_real_gpt: bool = False, 
             probs = F.softmax(logits_masked, dim=-1) # Softmax on (batch, vocab_size)
 
             # sample according to prob
-            next = torch.multinomial(probs, num_samples=1) # (batch, 1)
-            x = torch.cat((x, next), dim=1)
+            pred = torch.multinomial(probs, num_samples=1) # (batch, 1)
+            x = torch.cat((x, pred), dim=1)
 
-    print(tokenizer.batch_decode(x))
     [print(s) for s in tokenizer.batch_decode(x)]
     x.to("cpu")  # move back to cpu to clear gpu memory
 
@@ -413,9 +406,17 @@ def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4, num_steps: int = None
         split='train',
         master_process=True
     )
+    val_generator = DataLoader(
+        B=batch_size,
+        T=cfg.block_size,
+        process_rank=0,
+        num_processes=1,
+        split='val',
+        master_process=True
+    )    
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
-    losses, val_losses = train_me(model, cfg, generator, optimizer, num_epochs, num_steps, output_path=output_path)
+    losses, val_losses = train_me(model, val_generator, generator, optimizer, num_epochs, num_steps, output_path=output_path)
 
     # save trained model
     torch.save(model.state_dict(), os.path.join(output_path, "model.pth"))
@@ -447,7 +448,7 @@ if __name__ == "__main__":
     print("device: ", device)
 
     if TRAIN:
-        model, optimizer = training_wrapper(batch_size=32, num_epochs=1, lr=1e-4, num_steps=1505)
+        model, optimizer = training_wrapper(batch_size=32, num_epochs=1, lr=1e-4, num_steps=2)
     else:
         model, optimizer = load_checkpoint(r'/home/group_1/group1_model_3006_20260129_192713/epoch_0.checkpoint', train=False)  
 
