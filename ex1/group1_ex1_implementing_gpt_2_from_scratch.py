@@ -49,14 +49,13 @@ class CausalSelfAttention(nn.Module):
         applied = self.c_attn(x)
         Q, K, V = applied.split(self.config.n_embd, dim=2)
 
+        # Split to heads
+        Q = Q.view(batch, n_tokens, self.config.n_head, self.config.n_embd // self.config.n_head)
+        K = K.view(batch, n_tokens, self.config.n_head, self.config.n_embd // self.config.n_head)
+        V = V.view(batch, n_tokens, self.config.n_head, self.config.n_embd // self.config.n_head)
+        Q, K, V = Q.transpose(1, 2), K.transpose(1, 2), V.transpose(1, 2)  # dim is now (batch, n_head, block_size, n_embd/n_head) so n_head is also a batch dim
+
         if False:  # wanna use flash attention
-          # Split to heads
-          Q = Q.view(batch, n_tokens, self.config.n_head, self.config.n_embd // self.config.n_head)
-          K = K.view(batch, n_tokens, self.config.n_head, self.config.n_embd // self.config.n_head)
-          V = V.view(batch, n_tokens, self.config.n_head, self.config.n_embd // self.config.n_head)
-
-          Q, K, V = Q.transpose(1, 2), K.transpose(1, 2), V.transpose(1, 2)  # dim is now (batch, n_head, block_size, n_embd/n_head) so n_head is also a batch dim
-
           # Calculate attention
           att = Q @ K.transpose(-2, -1) / math.sqrt(self.config.n_embd // self.config.n_head)    # dim is (batch, n_head, block_size, block_size)
           # Add causal attention mask
@@ -65,10 +64,11 @@ class CausalSelfAttention(nn.Module):
           att = F.softmax(att, dim=-1) # work on the embedding
           att = att @ V     # dim is now (batch, n_head, block_size, n_embd / n_head)
 
-          # Concatenate heads
-          att = att.transpose(1, 2).contiguous().view(batch, n_tokens, self.config.n_embd)
+        else:
+            att = F.scaled_dot_product_attention(Q, K, V, is_causal=True, dropout_p=0.0, attn_mask=None)
 
-        att = F.scaled_dot_product_attention(Q, K, V)
+        # Concatenate heads back
+        att = att.transpose(1, 2).contiguous().view(batch, n_tokens, self.config.n_embd)
 
         # Multiply by the output projection
         att = self.c_proj(att)
@@ -295,7 +295,7 @@ def load_checkpoint(path, train=False):
     if train:
         generator = DataLoader(B=batch_size, T=cfg.block_size, process_rank=0, num_processes=1, split='train', master_process=True)
         val_generator = DataLoader(B=batch_size, T=cfg.block_size, process_rank=0, num_processes=1, split='val', master_process=True)    
-        model.train_me(model, val_generator, generator, optimizer, num_epochs, num_steps, path, warmup=True, losses=losses)
+        train_me(model, val_generator, generator, optimizer, num_epochs, num_steps, path, warmup=True, losses=losses)
     return model, optimizer
 
 
@@ -448,9 +448,9 @@ if __name__ == "__main__":
     print("device: ", device)
 
     if TRAIN:
-        model, optimizer = training_wrapper(batch_size=32, num_epochs=1, lr=1e-4, num_steps=2)
+        model, optimizer = training_wrapper(batch_size=32, num_epochs=1, lr=1e-4, num_steps=1506)
     else:
-        model, optimizer = load_checkpoint(r'/home/group_1/group1_model_3006_20260129_192713/epoch_0.checkpoint', train=False)  
+        model, optimizer = load_checkpoint(r'/home/group_1/group1_model_20260128_212907/epoch_0.checkpoint', train=False)  
 
     generate_text(model, prompt="Yesterday, I went", k=20)
     
