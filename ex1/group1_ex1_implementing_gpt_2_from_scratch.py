@@ -231,9 +231,10 @@ class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite cla
         return x, y
 
 
-def train_me(model, cfg, generator, optimizer, num_epochs, num_steps, output_path, warmup: bool = False, n_warmup_steps: int = 30, losses=None):
-    losses = [] if losses is None else losses
+def train_me(model, cfg, generator, optimizer, num_epochs, num_steps, output_path, 
+             warmup: bool = False, n_warmup_steps: int = 30, losses=None):
     val_losses = [] if losses is None else [np.nan] * (len(losses) // 200 + 1)
+    losses = [] if losses is None else losses
         
     model.train()
     print("train_me() started, warmup: ", warmup)
@@ -299,7 +300,7 @@ def load_checkpoint(path, train=False):
 
 def plot_losses(losses, title, output_path):
     plt.figure()
-    plt.plot(losses[1:])
+    plt.plot(losses)
     plt.xlabel('step')
     plt.ylabel('negative log likelihood loss')
 
