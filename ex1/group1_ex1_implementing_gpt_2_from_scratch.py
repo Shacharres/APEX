@@ -239,7 +239,7 @@ class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite cla
 
 
 def train_me(model, val_generator, generator, optimizer, num_epochs, num_steps, output_path, 
-             warmup: bool = False, n_warmup_steps: int = 30, losses=None):
+             warmup: bool = False, n_warmup_steps: int = 10, losses=None):
     val_losses = [] if losses is None else [np.nan] * (len(losses) // 200 + 1)
     losses = [] if losses is None else losses
         
@@ -265,11 +265,11 @@ def train_me(model, val_generator, generator, optimizer, num_epochs, num_steps, 
             x = x.to("cpu")
             y = y.to("cpu")
 
-            if step % 200 == 5: # print val loss every 200 steps, starting at step 5
+            if step > 0 and step % 200 == 0: # print val loss every 200 steps
                 val_loss = get_val_loss(model, val_generator)
                 val_losses.append(val_loss)
                 print(f'---- step {step}, val loss: {val_loss:.4f} ----')
-            if step > 1 and step % 500 == 0:
+            if step > 0 and step % 500 == 0:
                 generate_text(model, output_path, prompt="Yesterday, I went", k=20, step=step)
             if step > 0 and step % 10000 == 0:
                 save_checkpoint(model, optimizer, f'{epoch}_step_{step}', losses, val_losses, output_path)
@@ -290,12 +290,12 @@ def save_checkpoint(model, optimizer, epoch, losses, val_losses, output_path):
     }, os.path.join(output_path, f'epoch_{epoch}.checkpoint'))
 
 
-def load_checkpoint(path, train=False):
+def load_checkpoint(path, train=False, num_epochs=1, num_steps=5006, batch_size=32):
     # loading checkpoint
     model = GPT(GPTConfig())
     optimizer = torch.optim.AdamW(model.parameters())
 
-    checkpoint = torch.load(path)
+    checkpoint = torch.load(path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     
@@ -306,9 +306,21 @@ def load_checkpoint(path, train=False):
     print(f"Loaded checkpoint from {path}, epoch {epoch}, loss {loss:.4f}")
 
     if train:
-        generator = DataLoader(B=batch_size, T=cfg.block_size, process_rank=0, num_processes=1, split='train', master_process=True)
-        val_generator = DataLoader(B=batch_size, T=cfg.block_size, process_rank=0, num_processes=1, split='val', master_process=True)    
-        train_me(model, val_generator, generator, optimizer, num_epochs, num_steps, path, warmup=True, losses=losses)
+        generator = DataLoader(B=batch_size, T=model.config.block_size, process_rank=0, num_processes=1, split='train', master_process=True)
+        val_generator = DataLoader(B=batch_size, T=model.config.block_size, process_rank=0, num_processes=1, split='val', master_process=True)    
+
+        model.to(device)
+        # Move optimizer states to the model's device
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if isinstance(v, torch.Tensor):
+                    state[k] = v.to(device)
+
+        losses, val_losses = train_me(model, val_generator, generator, optimizer, num_epochs, num_steps, path, warmup=True, losses=losses)
+
+        torch.save(model.state_dict(), os.path.join(path, "model_cont_training.pth"))
+        plot_train_with_val_losses(losses, val_losses, path)
+
     return model, optimizer
 
 
@@ -455,7 +467,7 @@ def get_num_params(model):
 
 if __name__ == "__main__":
 
-    TRAIN = True
+    TRAIN = False
 
     import gc
     # Invoke garbage collector
@@ -466,8 +478,8 @@ if __name__ == "__main__":
     if TRAIN:
         model, optimizer, output_path = training_wrapper(batch_size=32, num_epochs=1, lr=1e-4)#, num_steps=10506)
     else:
-        output_path = r'/home/group_1/group1_model_1505_20260130_101745'
-        model, optimizer = load_checkpoint(output_path + "/epoch_0.checkpoint", train=False)  
+        output_path = r'/home/group_1/group1_model_30517_20260130_215002_wei-tie-bias-false'
+        model, optimizer = load_checkpoint(output_path + "/epoch_0.checkpoint", train=True)  
 
     generate_text(model, output_path, prompt="Yesterday, I went", k=20, step='final')
     get_num_params(model)
