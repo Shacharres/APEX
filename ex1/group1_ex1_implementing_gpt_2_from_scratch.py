@@ -447,6 +447,11 @@ def training_wrapper(batch_size=16, num_epochs=1, lr=1e-4, num_steps: int = None
     return model, optimizer, output_path
 
 
+def get_num_params(model):
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"\n\nTrainable parameters: {trainable_params}, Total parameters: {total_params}\n\n")
+
 
 if __name__ == "__main__":
 
@@ -465,6 +470,7 @@ if __name__ == "__main__":
         model, optimizer = load_checkpoint(output_path + "/epoch_0.checkpoint", train=False)  
 
     generate_text(model, output_path, prompt="Yesterday, I went", k=20, step='final')
+    get_num_params(model)
     
     del model
     del optimizer
