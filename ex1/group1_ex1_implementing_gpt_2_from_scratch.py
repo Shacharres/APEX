@@ -239,9 +239,9 @@ class DataLoader: # for the edu_fineweb dataset, based on the DataLoaderLite cla
 
 
 def train_me(model, val_generator, generator, optimizer, num_epochs, num_steps, output_path, 
-             warmup: bool = False, n_warmup_steps: int = 10, losses=None):
-    val_losses = [] if losses is None else [np.nan] * (len(losses) // 200 + 1)
+             warmup: bool = False, n_warmup_steps: int = 30, losses=None, val_losses=None):
     losses = [] if losses is None else losses
+    val_losses = [np.nan] * (len(losses) // 200) if val_losses is None else val_losses
         
     model.train()
     print("train_me() started, warmup: ", warmup)
@@ -291,12 +291,12 @@ def save_checkpoint(model, optimizer, epoch, losses, val_losses, output_path):
 
 
 def load_checkpoint(path, train=False, num_epochs=1, num_steps=5006, batch_size=32):
-    # loading checkpoint
-    model = GPT(GPTConfig())
-    optimizer = torch.optim.AdamW(model.parameters())
+    output_path = os.path.dirname(path)
 
     checkpoint = torch.load(path, map_location=device)
+    model = GPT(GPTConfig())
     model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer = torch.optim.AdamW(model.parameters())
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     
     epoch = checkpoint['epoch']
@@ -316,10 +316,11 @@ def load_checkpoint(path, train=False, num_epochs=1, num_steps=5006, batch_size=
                 if isinstance(v, torch.Tensor):
                     state[k] = v.to(device)
 
-        losses, val_losses = train_me(model, val_generator, generator, optimizer, num_epochs, num_steps, path, warmup=True, losses=losses)
+        losses, val_losses = train_me(model, val_generator, generator, optimizer, num_epochs, num_steps,
+                                      output_path, warmup=True, losses=losses, val_losses=val_losses)
 
-        torch.save(model.state_dict(), os.path.join(path, "model_cont_training.pth"))
-        plot_train_with_val_losses(losses, val_losses, path)
+        torch.save(model.state_dict(), os.path.join(output_path, "model_cont_training.pth"))
+        plot_train_with_val_losses(losses, val_losses, output_path)
 
     return model, optimizer
 
